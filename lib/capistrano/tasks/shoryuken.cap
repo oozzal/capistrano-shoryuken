@@ -9,9 +9,9 @@ namespace :load do
     set :shoryuken_requires, -> { [] }
     set :shoryuken_queues,   -> { [] }
     set :shoryuken_options,  -> { '--rails' }
-      
+
     set :shoryuken_role,     -> { :app }
-    
+
     # Rbenv and RVM integration
     set :rbenv_map_bins, fetch(:rbenv_map_bins).to_a.concat(%w(shoryuken))
     set :rvm_map_bins, fetch(:rvm_map_bins).to_a.concat(%w(shoryuken))
@@ -28,7 +28,7 @@ namespace :deploy do
 end
 
 namespace :shoryuken do
-  
+
   def pid_file_signal(pid_file, signal=nil, options={})
     args = ['kill', "-#{signal}", '$(', 'cat', pid_file, ')']
     args.delete_at(1) if args[1]=='-'
@@ -47,7 +47,7 @@ namespace :shoryuken do
   def pid_process_exists?(pid_file)
     pid_file_exists?(pid_file) and pid_file_signal(pid_file, '0', quiet: true)
   end
-  
+
   task :add_default_hooks do
     after 'deploy:updated', 'shoryuken:stop'
     after 'deploy:reverted', 'shoryuken:stop'
@@ -61,7 +61,7 @@ namespace :shoryuken do
         pid_file = fetch(:shoryuken_pid)
         if pid_file_exists?(pid_file)
           pid_file_signal pid_file, 'USR1', quiet: true
-          
+
           print 'Waiting for shoryuken to shutdown...'
           sleep 1 while pid_process_exists?(pid_file)
           execute :rm, '-f', pid_file
@@ -69,7 +69,7 @@ namespace :shoryuken do
       end
     end
   end
-  
+
   desc 'Shutdown the shoryuken process, immediately'
   task :shutdown do
     on roles fetch(:shoryuken_role) do
@@ -86,14 +86,21 @@ namespace :shoryuken do
       within release_path do
         pid_file = fetch(:shoryuken_pid)
         unless pid_process_exists?(pid_file)
-          args = ['--daemon']
+          args = []
           args.push "--pidfile '#{pid_file}'"
           logfile = fetch(:shoryuken_log) and args.push "--logfile '#{logfile}'"
           config = fetch(:shoryuken_config) and args.push "--config '#{config}'"
           queues = Array(fetch(:shoryuken_queues)) and queues.each{|queue| args.push "--queue #{queue}" }
           reqs = Array(fetch(:shoryuken_requires)) and reqs.each{|req| args.push "--require #{req}" }
           options = fetch(:shoryuken_options) and args.push Array(options).join(' ')
-          
+
+          if defined?(JRUBY_VERSION)
+            args.push '>/dev/null 2>&1 &'
+            warn 'Since JRuby doesn\'t support Process.daemon, Shoryuken will not be running as a daemon.'
+          else
+            args.push '--daemon'
+          end
+
           with rails_env: fetch(:shoryuken_env) do
             execute :bundle, :exec, :shoryuken, args.compact.join(' ')
           end
@@ -107,7 +114,7 @@ namespace :shoryuken do
     invoke 'shoryuken:stop'
     invoke 'shoryuken:start'
   end
-  
+
   desc 'Make the shoryuken process log detailed status information'
   task :log_status do
     on roles fetch(:shoryuken_role) do
@@ -115,7 +122,7 @@ namespace :shoryuken do
       pid_file_signal pid_file, 'TTIN' if pid_file_exists?(pid_file)
     end
   end
-  
+
   desc 'Tail the shoryuken log forever'
   task :tail_log do
     on roles fetch(:shoryuken_role) do
